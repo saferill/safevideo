@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Download, Link as LinkIcon, AlertCircle, CheckCircle2, Loader2, ArrowRight, ClipboardPaste, X, Plus, History, Film, Music, Trash2, Globe, Share2, Twitter, Facebook, MessageCircle } from "lucide-react";
+import { Download, Link as LinkIcon, AlertCircle, CheckCircle2, Loader2, ArrowRight, ClipboardPaste, X, Plus, Globe, Share2, Twitter, Facebook, MessageCircle, PlayCircle, Search, Settings, Shield, Zap, Info, Clock, ChevronRight, Video, Image as ImageIcon } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 
 function isUrl(str: string) {
@@ -17,6 +17,7 @@ function parseMediaResult(result: any, originalUrl: string = "") {
   let title = "Extracted Media";
   let thumbnail = "";
   const rawDownloads: { label: string, url: string }[] = [];
+  const rawImages: { label: string, url: string }[] = [];
 
   if (result?.title) title = result.title;
   else if (result?.desc) title = result.desc;
@@ -36,6 +37,7 @@ function parseMediaResult(result: any, originalUrl: string = "") {
 
       if (obj.match(/\.(jpeg|jpg|png|webp|gif)(\?.*)?$/i) || obj.includes('format=jpeg') || obj.includes('format=webp') || isImageKey) {
         if (!thumbnail) thumbnail = obj;
+        rawImages.push({ label: 'Photo', url: obj });
       } else {
         let label = siblingLabel || (parentKey ? parentKey.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()) : 'Media');
         if (label === 'Url' || label === 'Video' || label === 'Link') label = 'Media';
@@ -86,9 +88,19 @@ function parseMediaResult(result: any, originalUrl: string = "") {
     else vid.label = `Standard Quality (${index + 1})`;
   });
 
-  const formattedDownloads = [...videos, ...audios];
+  const photoDownloads: { label: string; url: string }[] = [];
+  if (videos.length === 0 && rawImages.length > 0) {
+    // If no video, it's a photo post/carousel!
+    const uniqueImages = Array.from(new Map(rawImages.map(item => [item.url, item])).values());
+    // The first image might be assigned as thumbnail, but we still want it downloadable
+    uniqueImages.forEach((img, index) => {
+      photoDownloads.push({ label: `Photo HD (${index + 1})`, url: img.url });
+    });
+  }
 
-  return { title, thumbnail, downloads: formattedDownloads, videos, audios };
+  const formattedDownloads = [...videos, ...photoDownloads, ...audios];
+
+  return { title, thumbnail, downloads: formattedDownloads, videos, audios, photos: photoDownloads };
 }
 
 export default function Home() {
@@ -364,7 +376,11 @@ export default function Home() {
                           download
                           className="w-full h-14 flex items-center justify-center gap-3 bg-zinc-800 text-zinc-50 rounded-xl font-medium text-[15px] border border-white/5 hover:bg-zinc-700 hover:border-white/10 active:scale-[0.98] transition-all"
                         >
-                          <Download className="w-4 h-4 text-zinc-400" />
+                          {link.label.includes('Photo') ? (
+                            <ImageIcon className="w-4 h-4 text-zinc-400" />
+                          ) : (
+                            <Download className="w-4 h-4 text-zinc-400" />
+                          )}
                           {link.label.includes('Download') ? link.label : `Download ${link.label}`}
                         </a>
                       ))}
