@@ -13,10 +13,10 @@ function isUrl(str: string) {
   }
 }
 
-function parseMediaResult(result: any) {
+function parseMediaResult(result: any, originalUrl: string = "") {
   let title = "Extracted Media";
   let thumbnail = "";
-  const downloads: { label: string, url: string }[] = [];
+  const rawDownloads: { label: string, url: string }[] = [];
 
   if (result?.title) title = result.title;
   else if (result?.desc) title = result.desc;
@@ -25,34 +25,70 @@ function parseMediaResult(result: any) {
   if (result?.thumbnail) thumbnail = result.thumbnail;
   else if (result?.cover) thumbnail = result.cover;
 
-  function extract(obj: any, parentKey = '') {
+  function extract(obj: any, parentKey = '', siblingLabel = '') {
     if (typeof obj === 'string' && isUrl(obj)) {
-      if (obj.match(/\.(jpeg|jpg|png|webp|gif)(\?.*)?$/i) || obj.includes('format=jpeg')) {
+      if (obj === originalUrl || obj === originalUrl + '/') return;
+      if (obj.match(/tiktok\.com\/@.*\/video\//) || obj.match(/instagram\.com\/(p|reel)\//) || obj.match(/youtube\.com\/watch\?v=/)) return;
+      if (obj.includes('.m3u8')) return; // Ignore HLS playlists
+
+      const pk = parentKey.toLowerCase();
+      const isImageKey = pk.includes('cover') || pk.includes('avatar') || pk.includes('thumb') || pk.includes('icon') || pk.includes('pic') || pk.includes('image');
+
+      if (obj.match(/\.(jpeg|jpg|png|webp|gif)(\?.*)?$/i) || obj.includes('format=jpeg') || obj.includes('format=webp') || isImageKey) {
         if (!thumbnail) thumbnail = obj;
       } else {
-        let label = parentKey ? parentKey.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()) : 'Download Media';
-        if (label === 'Url' || label === 'Video' || label === 'Link') label = 'Download Media';
-        downloads.push({ label, url: obj });
+        let label = siblingLabel || (parentKey ? parentKey.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()) : 'Media');
+        if (label === 'Url' || label === 'Video' || label === 'Link') label = 'Media';
+        rawDownloads.push({ label, url: obj });
       }
       return;
     }
     if (Array.isArray(obj)) {
       obj.forEach((item, idx) => extract(item, `${parentKey} ${idx + 1}`.trim()));
     } else if (obj && typeof obj === 'object') {
+      let possibleLabel = obj.type || obj.quality || obj.format || obj.label || obj.render || '';
       Object.entries(obj).forEach(([key, value]) => {
-        extract(value, key);
+        extract(value, key, typeof possibleLabel === 'string' ? possibleLabel : '');
       });
     }
   }
 
   extract(result);
 
-  if (downloads.length === 0 && result?.url && isUrl(result.url)) {
-    downloads.push({ label: 'Download Media', url: result.url });
+  if (rawDownloads.length === 0 && result?.url && isUrl(result.url)) {
+    if (!result.url.includes('.m3u8')) {
+      rawDownloads.push({ label: 'Media', url: result.url });
+    }
   }
 
-  const uniqueDownloads = Array.from(new Map(downloads.map(item => [item.url, item])).values());
-  return { title, thumbnail, downloads: uniqueDownloads };
+  const uniqueDownloads = Array.from(new Map(rawDownloads.map(item => [item.url, item])).values());
+  
+  const videos: { label: string; url: string }[] = [];
+  const audios: { label: string; url: string }[] = [];
+
+  uniqueDownloads.forEach(item => {
+    const isAudio = item.url.includes('.mp3') || item.url.includes('.m4a') || item.label.toLowerCase().includes('audio') || item.label.toLowerCase().includes('music') || item.label.toLowerCase().includes('mp3');
+    if (isAudio) {
+      audios.push({ label: 'MP3 Audio', url: item.url });
+    } else {
+      videos.push(item);
+    }
+  });
+
+  if (audios.length === 0 && videos.length > 1) {
+    const lastVideo = videos.pop();
+    if (lastVideo) audios.push({ label: 'MP3 Audio (Extracted)', url: lastVideo.url });
+  }
+
+  videos.forEach((vid, index) => {
+    if (index === 0) vid.label = "1080p HD (Best Quality)";
+    else if (index === 1) vid.label = "720p HD";
+    else vid.label = `Standard Quality (${index + 1})`;
+  });
+
+  const formattedDownloads = [...videos, ...audios];
+
+  return { title, thumbnail, downloads: formattedDownloads, videos, audios };
 }
 
 export default function Home() {
@@ -102,7 +138,7 @@ export default function Home() {
     executeDownload(url);
   };
 
-  const parsedData = result ? parseMediaResult(result) : null;
+  const parsedData = result ? parseMediaResult(result, lastFetchedUrl) : null;
 
   return (
     <div className="flex flex-col min-h-screen w-full relative overflow-hidden bg-zinc-950">
